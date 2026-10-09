@@ -1,359 +1,185 @@
-# Systematic research lab, crypto markets
+# 加密货币市场的系统性研究实验室
 
-A quantitative research pipeline I built and run on my own time. It collects
-market data from several exchanges, looks for patterns that predict which
-assets outperform, and subjects those patterns to enough scrutiny that most do
-not survive.
+这是我利用业余时间搭建并运行的一套量化研究流水线。它从多家交易所采集市场数据，寻找能够预测哪些资产将会跑赢的规律，并对这些规律施加足够严苛的检验——绝大多数都活不下来。
 
-This page walks through how that testing works, using one signal as the worked
-example. **The performance numbers at the end are the least interesting part.
-The method is the point:** with enough parameters to try, something will always
-look profitable on past data, and the job is telling a real effect from a
-coincidence.
+本文用一个信号作为贯穿始终的实例，说明这套检验是如何运作的。**文末的业绩数字是最不重要的一部分，方法本身才是重点：** 只要参数足够多，总会有某个组合在历史数据上看起来很赚钱，真正的工作是分辨哪些是真实效应、哪些只是巧合。
 
-The code that computes all of this is in [`factorlib/`](factorlib/). The
-signals themselves are not published.
+计算这一切的代码在 [`factorlib/`](factorlib/) 中。具体信号的定义不公开发布。
 
 ---
 
-## The problem, in one paragraph
+## 用一段话说明问题
 
-Every day, rank about 40 crypto assets by some measure computed from past
-market data. Buy the top of the ranking, sell the bottom. If the measure
-carries information about future returns, that book makes money regardless of
-whether the market goes up or down.
+每天，用某个由历史市场数据计算出的指标，对大约 40 种加密资产排序。买入排名靠前的，卖出排名靠后的。如果这个指标确实包含关于未来收益的信息，那么这本头寸组合无论市场涨跌都能赚钱。
 
-The difficulty is not building it. It is that a backtest will happily tell you
-a worthless signal is excellent. Assets that went to zero quietly disappear
-from historical data. A single unshifted line of code lets tomorrow's
-information leak into today's decision. Try forty parameter combinations and
-the best one looks impressive by construction. Trading costs then quietly
-remove whatever is left.
+困难之处不在于把它搭出来。困难在于：回测会兴高采烈地告诉你一个毫无价值的信号非常优秀。跌到归零的资产会从历史数据里悄无声息地消失。一行忘记平移的代码就会让明天的信息泄漏进今天的决策。试四十组参数，最好的那一组天生就好看。最后，交易成本会把剩下的一切也悄悄拿走。
 
-So every candidate goes through the same checks, in the same order, cheapest
-first.
+所以每个候选信号都要走同一套检查，顺序固定，从最便宜的开始。
 
 ---
 
-## Before any of that: finding something to test
+## 在此之前：先找到值得检验的东西
 
-The checks below are the last step. Most of the work is upstream, in the
-exploratory analysis that produces a candidate worth checking at all.
+下面这些检查是最后一步。大部分工作在上游，在探索性分析里——它的产出是一个值得拿去检验的候选。
 
-That work is not a search for formulas. It is a search for **behaviour**: a
-recurring pattern in how a market reacts to something. Does a crowded position
-tend to unwind? Does leverage building up in one asset predict what happens
-next? Do assets behave differently in the days around a listing, or at
-particular points in the week? Each of those is a hypothesis about a mechanism,
-and the analysis exists to find out whether the mechanism leaves a trace in the
-data.
+这项工作不是在搜索公式，而是在搜索**行为**：市场对某件事做出反应时反复出现的模式。拥挤的持仓是否倾向于瓦解？某个资产里不断累积的杠杆，能否预测接下来会发生什么？资产在上新前后、或在一周中特定的时点，表现是否不同？每一个这样的问题都是关于某个机制的假设，而分析的目的就是搞清楚这个机制是否在数据里留下了痕迹。
 
-In practice that means a sustained programme of exploratory analysis, mainly on
-price and volume behaviour, derivatives data such as funding rates and open
-interest, and order book state and order flow, among other areas. Most avenues
-produce nothing. Their useful output is a documented reason not to revisit
-them.
+实践中，这意味着持续不断的探索性分析，主要围绕价格与成交量行为、资金费率与持仓量等衍生品数据、订单簿状态与订单流等方向展开。大多数方向一无所获。它们有用的产出，就是一条「不必回头再看」的书面记录。
 
-**The characteristic failure is a pattern that holds on average and falls apart
-once you cut it.** A signal is tested on three years at once, the quantiles
-look clean, the Sharpe is respectable. Then the same result is split by year:
+**最典型的失败是一种「平均成立、一拆就散」的模式。** 把三年数据合在一起检验一个信号，分位表现干净利落，夏普也拿得出手。然后把同样的结果按年份拆开：
 
-![Pooled Sharpe against yearly Sharpe](docs/img/09_consistency.png)
+![合并夏普 vs 分年夏普](docs/img/09_consistency.png)
 
-These two signals have essentially the same headline number, 1.56 against 1.53.
-Split by year they are not remotely the same thing. One works in every year of
-the sample. The other was carried by two strong years and has been **negative
-through 2026**, which means whatever it was measuring has stopped being true.
-Pooling the whole period hides that completely.
+这两个信号的头条数字几乎一样，1.56 对 1.53。按年份拆开后，它们完全不是一回事。一个在样本的每一年都有效。另一个只靠两个强势年份撑着，并且**在 2026 年全年为负**——这意味着它衡量的那个东西已经不成立了。把整个区间合并在一起，会把这一点彻底掩盖掉。
 
-When that happens there are two defensible responses, and choosing the wrong
-one is how a coincidence ends up being traded. Either the mechanism is
-understood well enough to explain why the effect changed, in which case the
-signal may be salvageable under a condition that captures the regime, or it is
-not understood, in which case the result should be treated as a coincidence and
-the work returns to the start. The second case is far more common.
+遇到这种情况，有两种站得住脚的应对，而选错的那一种，就是一笔巧合最终变成了真实交易的方式。要么机制被理解得足够透彻，能够解释效应为什么变了，那么只要加上一个刻画市场状态的条件，这个信号或许还有救；要么机制没被理解，那么这个结果就应该被当作巧合，一切回到起点。后一种情况要常见得多。
 
-A few examples of what that looks like in practice, all documented rather than
-quietly dropped: a mean-reversion effect that turned out not to be recoverable
-from daily data at all, so the whole approach was abandoned rather than forced;
-a liquidity measure with a very strong statistical result that dissolved on
-inspection into a disguised bet on volatility, already covered elsewhere; and
-the book depth signal in the chart above, kept in the catalogue but out of the
-traded portfolio precisely because its recent behaviour is not understood.
+举几个实践中的例子，全部都有书面记录，而不是悄悄丢掉：一个均值回归效应，最后发现用日频数据根本无法恢复，于是整个思路被放弃，而不是硬凑；一个统计结果极强的流动性指标，细看之下瓦解成了一场伪装起来的做空波动率，而这一点在别处已经覆盖过了；以及上图中那个订单簿深度信号，它被保留在信号目录里，但被刻意排除在实际交易的组合之外——原因恰恰是它近期的表现没有被理解。
 
 ---
 
-## The worked example
+## 贯穿全篇的实例
 
-A momentum signal: how far an asset has moved from its own recent trend,
-measured relative to how much it normally moves. An asset unusually far above
-its trend tends to keep outperforming over the following days.
+一个动量信号：衡量一个资产偏离自身近期趋势有多远，相对于它平时波动有多大。一个异常偏离自身趋势的资产，倾向于在随后几天继续跑赢。
 
-The universe is the 40 most liquid assets, rebuilt daily so it follows the
-market. Test window: **June 2023 to August 2026**, 1172 trading days.
+标的池是最具流动性的 40 种资产，每日重建，以跟随市场变化。测试区间：**2023 年 6 月至 2026 年 8 月**，共 1172 个交易日。
 
-### Step 1. Does the signal order the cross-section at all?
+### 第一步：这个信号到底能不能给截面排序？
 
-Group every asset-day into deciles by signal strength, then look at what each
-decile returned over the next 7 days, relative to the market.
+按信号强度把每个「资产-日」分成十分位，然后看每个十分位在随后 7 天里相对于市场的收益。
 
-![Signal percentile against forward return](docs/img/01_binned.png)
+![信号分位 vs 未来收益](docs/img/01_binned.png)
 
-The extremes separate cleanly: the weakest decile underperforms by 0.91% and
-the strongest outperforms by 0.82% per week. But the middle is noise, and the
-shape is a U rather than a staircase.
+两端分得很干净：最弱的十分位每周跑输 0.91%，最强的跑赢 0.82%。但中间是一团噪声，而且形状是个 U 而不是阶梯。
 
-That distinction matters. A textbook factor produces a gradient, where each
-decile beats the one below it. **This is a tail effect instead: the information
-is concentrated in the extremes.** Knowing that changes what you can trade,
-because the middle 60% of the ranking carries nothing worth acting on.
+这个区分很重要。教科书里的因子会呈现出梯度：每个十分位都比下面那个好。**而这里是一个尾部效应：信息集中在两端。** 理解了这一点，就会改变你能交易什么——因为排名中间那 60% 的东西，没有任何值得下手的含量。
 
-### Step 2. Where does the money actually come from?
+### 第二步：钱到底是从哪来的？
 
-Same question, framed as a portfolio: split into five buckets and measure the
-annual return of each, relative to the universe. The left panel is the signal
-on its own (ignore the right one for now, it comes back later).
+同一个问题，换个问法：分成五个桶，衡量每一桶相对于标的池的年化收益。左图是信号单独的表现（右图先不管，后面会回来讲）。
 
-![Return by quintile](docs/img/02_quantiles.png)
+![各五分位收益](docs/img/02_quantiles.png)
 
-Q5 returns +47% a year against the market, Q1 loses 31%, and Q2 to Q4 sit flat
-within a few points of each other. The long/short works because **both ends
-work**, not because there is a smooth gradient to ride.
+Q5 相对市场年化 +47%，Q1 亏 31%，而 Q2 到 Q4 基本持平，彼此相差几个点之内。多空之所以成立，是因为**两头都有效**，而不是因为有一条平滑的梯度可以顺着骑。
 
-This is also the honest reading of a common failure: had only Q5 been positive
-with everything else flat, the signal would be one lucky bucket, and far more
-fragile than a headline Sharpe suggests.
+这也是一种常见失败的诚实读法：如果只有 Q5 为正、其余全平，那这个信号就只是一个幸运的桶，比头条夏普显示的要脆弱得多。
 
-A related check, worth stating because it looks like a contradiction: the
-day-to-day rank correlation between signal and next-day return is **slightly
-negative** (-0.015). At a 7-day horizon it turns positive (+0.010) but is not
-statistically strong on its own. The edge is not in daily regularity, it
-accumulates over about a week and lives in the tails. A signal can be
-genuinely tradable and still have an unimpressive daily correlation, which is
-why this gets measured before any portfolio is built rather than after.
+还有一个相关的检查值得单独说明，因为它看起来像自相矛盾：信号与次日收益之间的日度排序相关性是**略微为负**的（-0.015）。在 7 天期限上转正（+0.010），但单独看并不算统计上强。优势不在于日度的规律性，它在大约一周的尺度上累积起来，并且存在于尾部。一个信号可以真正可交易，同时日度相关性毫不起眼——这正是为什么要在搭建任何组合之前、而不是之后，先把这件事测清楚。
 
-### Step 3. Is it the signal, or a lucky parameter choice?
+### 第三步：是信号本身，还是运气好的参数？
 
-The signal has two knobs: the trend window and the volatility window. Testing
-one combination proves nothing, so all 28 get tested.
+这个信号有两个旋钮：趋势窗口和波动率窗口。只测一组组合什么也证明不了，所以 28 组全测。
 
-![Sharpe across the parameter grid](docs/img/03_robustness.png)
+![参数网格上的夏普](docs/img/03_robustness.png)
 
-All 28 are positive, from 0.82 to 1.81, and the surface varies smoothly:
-shorter trend windows beat longer ones, and volatility normalisation helps
-almost everywhere. **The plateau is the result, not the best cell.** A single
-bright square in an otherwise noisy grid is the signature of overfitting, and
-would have disqualified this signal here.
+28 组全部为正，从 0.82 到 1.81，而且曲面变化平滑：较短的趋势窗口优于较长的，波动率归一化几乎处处有帮助。**结果是那片平台，而不是最好的那一格。** 在一片嘈杂网格中孤零零的一格亮色，是过拟合的签名——若真出现，这个信号在这里就会被直接淘汰。
 
-### Step 4. Does it survive trading costs?
+### 第四步：它能扛住交易成本吗？
 
-Rebalancing daily means turnover, and turnover costs money. This signal, traded
-on its own, replaces about a third of its book every day.
+每日再平衡意味着换手，而换手要钱。这个信号单独交易时，每天大约要换掉三分之一的持仓。
 
-![Sharpe as costs rise](docs/img/04_costs.png)
+![成本上升下的夏普](docs/img/04_costs.png)
 
-The edge disappears entirely at a round-trip cost of **20 basis points**. Real
-cost on a liquid venue is a few basis points, so there is genuine room between
-what the signal earns and what it costs to run. Plenty of published strategies
-fail exactly here: a Sharpe of 1.5 that breaks even at 2 bps is not a strategy,
-it is a measurement of the fee schedule.
+在**20 个基点**的往返成本下，优势完全消失。流动性好的场所真实成本只有几个基点，所以信号赚到的和运行它所付出的之间，确实还留着空间。大量公开发表的策略恰恰死在这里：一个在 2 个基点就盈亏平衡的 1.5 夏普，不是策略，只是对费率表的一次测量。
 
-### Step 5. Does it hold up in every year?
+### 第五步：它在每一年都成立吗？
 
-The last check is the one from the opening section, applied to the candidate:
-split the result by year and see whether it survives. This signal returns
-+1.51, +0.78, +1.79 and +0.62 across 2023 to 2026. It weakens in two of the
-four, which is honest for a momentum signal, but it stays positive throughout
-and never collapses the way the book depth measure did. A candidate that owes
-its entire record to one exceptional year does not get past this point.
+最后一项检查，就是开篇那一节的做法，用在候选信号上：按年份拆开结果，看它是否依然成立。这个信号在 2023 到 2026 年分别是 +1.51、+0.78、+1.79 和 +0.62。四年中有两年走弱，对一个动量信号来说这是诚实的，但它始终为正，从未像订单簿深度指标那样崩掉。一个把全部业绩都寄托在某一个异常年份上的候选信号，过不了这一关。
 
 ---
 
-## Turning a ranking into positions
+## 把排名变成持仓
 
-Everything above measures a signal. Trading it requires turning a list of
-scores into actual position sizes, and that step has as much influence on the
-result as the signal does. The examples below use the combined signal that the
-live portfolio trades, described in the next section, since sizing is what
-turns any ranking into a book.
+以上一切都是在对信号做测量。要交易它，就得把一串打分变成真实的仓位规模，而这一步对结果的影响，和信号本身一样大。下面的例子使用实际组合所交易的合成信号——下一节会讲到它——因为正是仓位规模把任何一份排名变成了持仓。
 
-**The comparison is always across assets, never against history.** Each day the
-signal is computed for every asset in the universe, then converted to a rank
-within that day: strongest, second strongest, and so on. Only the ordering is
-used, not the raw value. This matters because raw values drift. A momentum
-score of 2.0 means something different in a calm market than in a violent one,
-but "the strongest of today's 40" means the same thing in both. Ranking within
-the day also removes the market: if everything rises together, the ranking is
-unchanged, which is what makes the result independent of market direction.
+**比较永远发生在资产之间，而不是与历史比较。** 每天为标的池里每个资产计算信号，然后转换成当天的排名：最强的、第二强的，依此类推。只使用次序，不使用原始数值。这一点很重要，因为原始数值会漂移。一个 2.0 的动量分，在平静的市场和剧烈的市场里含义不同，但「今天 40 个资产里最强的那个」，在两种市场里含义相同。在当天内部排序还顺带抹掉了市场的影响：如果所有东西一起涨，排名不变——这正是结果与市场方向无关的原因。
 
-Practically, about 37 assets are scored each day and the book holds around 29
-of them, long the top of the ranking and short the bottom, with the middle left
-out. The two sides are sized to be equal, so the book is neutral by
-construction rather than by forecast.
+实际操作中，每天大约有 37 个资产被打分，组合持有其中约 29 个，做多排名靠前的、做空排名靠后的，中间部分不要。两侧规模被调成相等，所以这本组合是结构性中性的，而不是靠预测做到中性。
 
-**Position size is then set by volatility, not by conviction.** Within each
-side, a name's weight is proportional to the strength of its rank divided by
-its own recent volatility.
+**仓位规模由波动率决定，而不是由信心决定。** 在每一侧内部，一个资产的权重正比于它排名强度除以它自身的近期波动率。
 
-![Turning a ranking into positions](docs/img/08_sizing.png)
+![把排名变成持仓](docs/img/08_sizing.png)
 
-The left panel is a single day's book. Every held name is plotted by its own
-volatility against the size it received, and the relationship is clearly
-inverse. TRX scores near the top of the ranking and gets 12% of the book
-because it moves about 0.5% a day. LINK scores slightly higher still but
-receives 2.6%, because it moves five times as much. Equal weighting would give
-them identical sizes and let LINK dominate the day's outcome.
+左图是某一天的持仓。每个被持有的资产按自身波动率与它拿到的规模画出来，二者关系明显是反向的。TRX 排名接近顶端，拿到组合的 12%，因为它每天只动大约 0.5%。LINK 排名比它更高，却只拿到 2.6%，因为它动的是 TRX 的五倍。等权重会给它们相同的规模，让 LINK 主导当天的结果。
 
-That is not a marginal adjustment. On a typical day the most volatile asset in
-this universe moves **ten times** as much as the calmest, with the volatile
-decile near 8.4% a day against 2.9% for the quiet one. Sizing every position
-equally means a handful of the wildest names drive nearly all the risk, and the
-portfolio stops expressing the signal and starts expressing those names.
+这不是一个边际上的微调。在一个典型的日子里，这个标的池里波动最大的那个资产，波动幅度是**最平静资产的十倍**；波动率最高的十分位每天约 8.4%，而最安静的十分位是 2.9%。每一个仓位都等权，意味着少数几个最疯狂的资产驱动了几乎全部风险，组合就不再是在表达信号，而是在表达那几个名字。
 
-The right panel shows what that costs, comparing the two sizing rules on the
-identical signal, both scaled to the same volatility so the comparison is
-risk-adjusted rather than a matter of running hotter. Sizing by volatility
-lifts the Sharpe ratio from **1.57 to 1.81** and cuts the worst drawdown from
--21.8% to -16.4%. Same signal, same universe, same days: the only difference is
-how much of each name gets held.
+右图展示了这么做的代价：在完全相同的信号上比较两种规模规则，两者都被缩放到相同的波动率，所以比较是风险调整后的，而不是「谁开得更猛」。按波动率定规模把夏普比率从**1.57 提到 1.81**，并把最大回撤从 -21.8% 收到 -16.4%。同样的信号、同样的标的池、同样的交易日：唯一的差别是每个资产被持有多少。
 
-Two consequences worth stating, because both are constraints rather than
-features. Weighting by inverse volatility tilts the book towards calmer, larger
-assets, so a check that the result is not merely a size bet belongs in the
-evaluation. And the largest single position averages about 11% of the book,
-which is concentrated enough that caps per asset matter in live trading even
-though they barely register in a backtest.
+有两个后果值得说明，因为它们都是约束而不是特色。按逆波动率加权会使组合向更平静、更大的资产倾斜，所以「检验结果是否只是押注规模」这一步应该放进评估流程里。而单一最大仓位平均约占组合的 11%，这个集中度足以让「单资产上限」在实盘交易中变得重要，尽管它在回测里几乎看不出来。
 
 ---
 
-## From one signal to a portfolio
+## 从一个信号到一个组合
 
-Six signals passed the checks above. Individually their Sharpe ratios run from
-1.20 to 1.57.
+有六个信号通过了上面的检验。单看它们，夏普比率从 1.20 到 1.57。
 
-![Each factor's equity curve](docs/img/07_factors.png)
+![各因子净值曲线](docs/img/07_factors.png)
 
-But a new signal earns its place by being **different**, not by being good. If
-it moves with something already in the portfolio, it adds risk without adding
-information.
+但一个新信号是靠**不一样**获得位置的，而不是靠好。如果它和组合里已有的东西同步波动，那它就是增加了风险却没有增加信息。
 
-![Correlation between factor return streams](docs/img/05_correlation.png)
+![因子收益流之间的相关性](docs/img/05_correlation.png)
 
-The structure is visible immediately. The two momentum signals correlate at
-0.88, so they are one bet rather than two, and the better one replaces the
-other instead of joining it. Crowding, leverage and book depth form a second
-cluster at 0.74 to 0.95: three different measurements of the same underlying
-thing, which is how heavily positioned the market already is. Flow imbalance
-correlates at most 0.16 with any of the others, which makes it the most
-valuable of the six despite having the lowest standalone Sharpe.
+结构一眼可见。两个动量信号相关性 0.88，所以它们是一笔押注而不是两笔，较好的那个直接替换掉另一个，而不是加入它。拥挤度、杠杆和订单簿深度构成第二个簇，相关性在 0.74 到 0.95 之间：同一个底层事物的三种不同测量，也就是市场仓位已经有多重。订单流失衡与其他任何一个的相关性最高只有 0.16，这让它在六个里面最有价值——尽管它的单独夏普最低。
 
-So the portfolio that actually runs uses **three** of the six: the best
-momentum signal, one positioning signal from the middle cluster, and flow
-imbalance for being uncorrelated with both. The other three are held in
-reserve, either replaced by something they correlate with or currently out of
-favour.
+所以真正在跑的组合只用了六个中的**三个**：最好的那个动量信号、中间那个簇里的一个仓位信号，以及订单流失衡，理由是它与前两者都不相关。另外三个留作储备，要么已被与它相关的信号替代，要么目前不受青睐。
 
-How they get combined is deliberately unsophisticated. Each signal is converted
-to a rank within the day, the ranks are averaged with **equal weight**, and the
-combined ranking is then sized exactly like a single signal. No optimiser
-chooses the weights.
+它们如何合成，刻意做得很朴素。每个信号在当天内转成排序，各排序以**等权**求平均，合成后的排名再完全按单信号的方式来定规模。没有任何优化器来决定权重。
 
-That is a choice, not laziness. Fitting weights to three correlated signals
-over three years of history produces numbers that look precise and are mostly
-noise: the optimiser will happily allocate on the strength of one good quarter.
-Equal weighting is a deliberately hard baseline, and anything more elaborate
-has to beat it out of sample before it earns its place.
+这是一个选择，不是偷懒。在三年历史上为三个相关的信号拟合权重，得到的数字看起来精确，其实大部分是噪声：优化器会很乐意凭一个不错季度的表现就大举配置。等权是一条刻意提高难度的基准线，任何更复杂的东西都必须在样本外打败它，才配得上它的位置。
 
-The one refinement in use is a seven-day smoothing of the combined ranking, and
-it illustrates why gross performance is the wrong thing to optimise. Smoothing
-**lowers** the gross Sharpe from 2.16 to 1.81, which looks like pure damage.
-What it buys is turnover: 22% of the book per day instead of 51%. After a 5 bps
-round-trip cost the two are close to even, 1.58 against 1.62, so more than half
-the apparent gross advantage was never real money. It was a fee bill that had
-not been counted yet, and the smoothed book gets there with less than half the
-execution, which is worth more as size grows.
+实际使用中唯一的改进，是对合成排名做七天平滑，它也说明了为什么「毛收益」是个不该被优化的东西。平滑**降低了**毛夏普，从 2.16 降到 1.81，看起来纯粹是损害。它换来的是换手：每天换掉组合的 22%，而不是 51%。在 5 个基点的往返成本下，两者几乎打平，1.58 对 1.62——也就是说，毛收益优势里超过一半的部分从来就不是真钱，而是一张还没被计入的费用账单。平滑后的组合用不到一半的执行量达到同样的位置，随着规模增长，这更值钱。
 
-Combining signals does something the individual charts do not show. Averaging
-the three rankings and re-sorting into quintiles gives the right-hand panel
-from earlier:
+合成信号做了一件单信号图表看不出来的事。把三个排名求平均、重新分成五分位，就得到前面那张右图：
 
-![Return by quintile](docs/img/02_quantiles.png)
+![各五分位收益](docs/img/02_quantiles.png)
 
-The single signal was flat across Q2 to Q4 and only paid at the extremes. The
-combined signal steps upward almost cleanly: -34%, -13%, -13%, +10%, +48%. Q2
-and Q3 still tie, so it is not perfectly ordered, but the middle of the
-ranking now carries information it did not carry before. **Three noisy tail
-effects average into something closer to a gradient**, because the noise in
-each is largely independent while the signal is not.
+单信号在 Q2 到 Q4 是平的，只在两端给钱。合成信号几乎干净地逐级抬升：-34%、-13%、-13%、+10%、+48%。Q2 和 Q3 仍然并列，所以它不是完美有序，但排名中间部分现在承载了它此前没有的信息。**三个带噪声的尾部效应，平均成了更接近梯度的东西**，因为每一个的噪声大体上是独立的，而信号不是。
 
-That improvement is visible in the result. Combined at equal risk:
+这个改进在结果里看得见。在等风险下合成：
 
-![Portfolio equity and drawdown](docs/img/06_portfolio.png)
+![组合净值与回撤](docs/img/06_portfolio.png)
 
-| | value |
-|---|---|
-| Sharpe ratio | 2.10 |
-| Maximum drawdown | -15.9% |
-| Correlation to Bitcoin | -0.04 |
-| Sharpe by year | 1.32 (2023), 2.72 (2024), 1.76 (2025), 2.39 (2026) |
+|                  | 数值                                               |
+| ---------------- | -------------------------------------------------- |
+| 夏普比率         | 2.10                                               |
+| 最大回撤         | -15.9%                                             |
+| 与比特币的相关性 | -0.04                                              |
+| 分年夏普         | 1.32 (2023)、2.72 (2024)、1.76 (2025)、2.39 (2026) |
 
-The correlation to Bitcoin is the number I care about most. At -0.04 this is
-not a disguised bet on crypto going up: it is long some assets and short
-others, and the market direction cancels out. The chart shows what that means
-in practice. Bitcoin roughly doubles, gives it all back, and ends the period
-below where it peaked, while the portfolio compounds through both halves and
-draws down less than 16% at its worst.
+与比特币的相关性是我最看重的数字。在 -0.04 这个水平上，它不是在伪装成「押注加密上涨」：它做多一部分资产、做空另一部分资产，市场方向被抵消掉了。图里展示了这在实践中意味着什么。比特币大约翻了一倍，又把涨幅全部还回去，期末低于它曾经的高点，而组合在两段里都在复利增长，最大回撤不到 16%。
 
-**Caveats, since a results section without them is marketing.** These figures
-are gross of costs and measured on the research harness, not a live trading
-statement. Three years is a short window, and it contains one full crypto
-cycle rather than several. Results vary a lot year to year, from 1.32 to 2.72.
-Every signal was developed on this same history, so the usual warning about
-in-sample results applies: the honest test is what happens on data that did
-not exist when the signals were chosen.
+**必须说明的注意事项，因为一个没有注意事项的结果章节就是营销。** 这些数字都是毛收益、未扣成本，并且是在研究框架上测出来的，不是实盘交易对账单。三年是很短的窗口，而且它只包含了一个完整的加密周期，而不是若干个。结果在年与年之间差异很大，从 1.32 到 2.72。每一个信号都是在这同一段历史上开发出来的，所以关于样本内结果的常规警告依然适用：诚实的检验，是在信号被选定时尚不存在的数据上会发生什么。
 
 ---
 
-## The system underneath
+## 底层的系统
 
-None of the above works without the data pipeline that feeds it, which is the
-larger part of the engineering.
+以上的一切都离不开为它供数的数据管线，而那才是工程中更大的一部分。
 
-![Architecture](docs/img/00_architecture.png)
+![架构](docs/img/00_architecture.png)
 
-- **Ingestion.** REST and websocket collectors across several venues, each with
-  its own API, rate limits and quirks, normalised into one schema.
-- **Storage.** SQLite and parquet, incremental: it fetches only the ranges it
-  is missing. Integrity checks run before anything is written. One example that
-  cost real debugging time: a candle for the current day looks exactly like a
-  finished one, and storing it corrupts every calculation downstream until the
-  day rolls over.
-- **Scheduling.** An hourly tick runs jobs in dependency order and rebuilds
-  whatever has gone stale, surviving laptop sleep and restarts.
-- **Monitoring.** A FastAPI backend with a React frontend showing live state,
-  historical reconciliation and configuration, so a broken upstream feed is
-  visible immediately rather than three weeks later.
+- **采集。** 覆盖多家交易所的 REST 与 websocket 采集器，每家都有自己的 API、限频和怪癖，统一归一化成一个 schema。
+- **存储。** SQLite 与 parquet，增量式：只抓取缺失的区间。写入之前先跑完整性检查。一个曾耗费大量调试时间的例子：当天的 K 线看起来和一根已收盘的 K 线一模一样，把它存下来会污染下游所有计算，直到这一天翻过去为止。
+- **调度。** 每小时一次 tick，按依赖顺序跑任务并重建所有过期的东西，能扛住笔记本休眠和重启。
+- **监控。** 一个 FastAPI 后端加 React 前端，展示实时状态、历史对账和配置，让上游数据源的故障立刻可见，而不是三周之后才发现。
 
-**Stack:** Python, pandas, NumPy, SciPy, FastAPI, React, plotly, SQLite,
-parquet.
+**技术栈：** Python、pandas、NumPy、SciPy、FastAPI、React、plotly、SQLite、parquet。
 
 ---
 
-## The code
+## 代码
 
-[`factorlib/`](factorlib/) contains the evaluation harness: universe
-construction, signal scoring, portfolio construction, cost modelling. Worth
-reading if you want to see how the measurement is done.
+[`factorlib/`](factorlib/) 里是评估框架：标的池构建、信号打分、组合构建、成本建模。如果你想看测量是怎么做的，值得一读。
 
-| file | what it does |
-|---|---|
-| [`factorlib/evaluate.py`](factorlib/evaluate.py) | the shared harness: rank correlations, quantile returns, drawdowns, robustness grids |
-| [`factorlib/portfolio.py`](factorlib/portfolio.py) | combining signals, position sizing, turnover and cost accounting |
-| [`factorlib/universe.py`](factorlib/universe.py) | which assets are tradable on which dates, including ones that later died |
+| 文件                                                | 作用                                             |
+| --------------------------------------------------- | ------------------------------------------------ |
+| [`factorlib/evaluate.py`](factorlib/evaluate.py)   | 共用框架：排序相关性、分位收益、回撤、稳健性网格 |
+| [`factorlib/portfolio.py`](factorlib/portfolio.py) | 合成信号、仓位规模、换手与成本核算               |
+| [`factorlib/universe.py`](factorlib/universe.py)   | 哪些资产在哪些日期可交易，包括后来死掉的那些     |
 
-This code is published to show the method. It is extracted from a private lab,
-it is not maintained as a package, and the signal definitions are not included.
+这些代码公开发布是为了展示方法。它从一套私有实验室中抽离而来，不作为软件包维护，信号定义也不包含在内。
 
-## Licence
+## 许可证
 
-MIT.
+MIT。

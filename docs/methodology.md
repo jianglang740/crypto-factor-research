@@ -1,116 +1,66 @@
-# Methodology
+# 方法论
 
-How a candidate signal gets from "interesting idea" to "something I would put
-money behind", and, more often, how it gets killed. The order matters: each
-stage is cheaper than the one after it, so anything that fails early saves the
-expensive work.
+一个候选信号如何从「有意思的想法」走到「我愿意真金白银押上去」，以及更常见的：它是如何被淘汰的。顺序很重要：每个阶段都比后一个更便宜，所以任何在早期失败的东西都省下了后面昂贵的功夫。
 
-## 1. The universe comes first
+## 1. 标的池优先
 
-Almost every inflated crypto backtest I have seen traces back to the universe
-rather than the signal.
+我见过的几乎每一个被夸大的加密回测，根子都在标的池，而不是信号。
 
-**Survivorship.** A universe rebuilt today from currently-listed perpetuals has
-silently deleted every asset that went to zero. Since most factors are long
-winners and short losers, deleting the losers flatters the short leg and the
-long leg at once. The fix is a life window per asset, first candle to last
-traded candle, with delisted names kept in until they actually died
-(`universe.life_windows`).
+**幸存者偏差。** 今天用当前在市的永续合约重建出来的标的池，已经悄悄删掉了所有归零的资产。由于大多数因子是做多赢家、做空输家，删掉输家会同时美化空头腿和多头腿。解法是给每个资产一个生命窗口，从第一根 K 线到最后一根可交易的 K 线，退市的名字一直保留到它真正死亡为止（`universe.life_windows`）。
 
-**Backfilled candles.** Exchange APIs will happily serve candles from before
-the venue existed. If you trust listing dates naively, your early sample is
-fiction. Every backtest is floored at a date the venue can actually support
-(`min_start`).
+**回填的 K 线。** 交易所 API 会很乐意提供该场所存在之前的 K 线。如果你天真地相信上市日期，你的早期样本就是虚构的。每一次回测都被限制在一个该场所有能力支持的最早日期上（`min_start`）。
 
-**Liquidity, rolling.** Membership is a rolling top-N by dollar volume, not a
-fixed list, so the universe moves as the market does.
+**流动性，滚动更新。** 成员资格是按成交额滚动的 top-N，而不是一份固定名单，所以标的池会随市场一起移动。
 
-The honest caveat this leaves: entering a liquidity-ranked universe is itself
-correlated with recent momentum, so universe composition and a momentum signal
-are not independent. Worth stating, not worth pretending away.
+由此留下的诚实提醒：进入一个按流动性排序的标的池，这件事本身就与近期动量相关，所以标的池构成和动量信号并不独立。值得说明，不值得假装它不存在。
 
-## 2. Timing convention, fixed once
+## 2. 时间约定，一次定死
 
-    factor at close D  ->  position at close D  ->  return D to D+1
+    D 日收盘的因子  ->  D 日收盘建仓  ->  D 到 D+1 的收益
 
-Written down once and enforced in the harness rather than re-derived per
-analysis. This is where lookahead creeps in: a rolling statistic that is not
-shifted, a regime variable read on the day it is used, a forward return aligned
-one step off. Every rolling estimate in the leverage layer is shifted by a day
-for the same reason.
+写下来一次，并在框架里强制执行，而不是每次分析重新推导。前视偏差就是从这类地方钻进来的：一个没做平移的滚动统计量、一个在使用当天被读取的状态变量、一个错位一步的未来收益。杠杆层里每一个滚动估计都同样平移了一天，原因是同一个。
 
-## 3. Signal quality before portfolio construction
+## 3. 先看信号质量，再谈组合构建
 
-The information coefficient, daily cross-sectional rank correlation between
-the factor and its forward return, measures the signal without any sizing
-choice mixed in. A good Sharpe from a bad IC usually means the portfolio
-construction is doing the work, which is worth knowing before you attribute
-skill to the idea.
+信息系数（IC），即因子与其未来收益之间的日度截面排序相关性，在不掺入任何仓位选择的情况下衡量信号。一个糟糕的 IC 配上漂亮的夏普，通常说明是组合构建在干活——在你把功劳归给这个想法之前，值得先知道这一点。
 
-Reported as mean IC, annualised ICIR, and a t-stat. Daily IC near zero is not
-automatically fatal: some genuine edges live entirely in the tails and show a
-flat day-to-day IC with a strongly positive 7-day one.
+报告为平均 IC、年化 ICIR 和一个 t 值。日度 IC 接近零并不自动等于死刑：有些真实的优势完全活在尾部，表现为平掉的日度 IC，却有一个显著为正的 7 日 IC。
 
-## 4. Portfolio: quintiles, rank-weighted, inverse-vol
+## 4. 组合：五分位、按排名加权、逆波动率
 
-Two reference constructions, both gross 1:
+两个参考构建，毛杠杆均为 1：
 
-- **LS**: rank-weighted long/short, weights = quantile − mean.
-- **LSiv**: the same, times inverse 20-day volatility, legs normalised 50/50.
+- **LS**：按排名加权的多空，权重 = 分位数 − 均值。
+- **LSiv**：同上，乘以 20 日波动率的倒数，两腿归一化为 50/50。
 
-Inverse-vol sizing is not decoration. Without it, a handful of high-vol
-small-caps dominate the risk and the "factor" becomes a bet on those names.
+逆波动率定规模不是装饰。没有它，少数几个高波动小市值资产会主导风险，「因子」就变成了押注那几个名字。
 
-Two diagnostics matter more than the headline Sharpe:
+有两个诊断比头条夏普更重要：
 
-- **Monotonicity** across quantiles (`binned_forward`). If only Q5 works, you
-  have one bucket, not a factor, far more fragile out of sample.
-- **Up/down beta** (`updown_beta`). A strongly negative down-beta with a flat
-  up-beta means the strategy is short volatility: it sells crash insurance and
-  collects a premium that looks like alpha until it doesn't.
+- **分位间的单调性**（`binned_forward`）。如果只有 Q5 有效，你手里是一个桶，不是一个因子，样本外脆弱得多。
+- **上涨/下跌 beta**（`updown_beta`）。一个显著为负的下跌 beta 配上平的上涨 beta，意味着这个策略在做空波动率：它卖出崩盘保险，收取一笔溢价，这笔溢价看起来像 alpha，直到它不再像。
 
-## 5. Robustness before optimisation
+## 5. 先做稳健性，再做优化
 
-A single tuned parameter pair proves nothing. The test is a grid
-(`sharpe_grid`): are *all* the neighbours positive, and does performance vary
-smoothly? A lone bright cell in a noisy grid is an overfit, no matter how good
-that cell looks.
+单独一组调好的参数什么也证明不了。检验是一个网格（`sharpe_grid`）：*所有*邻居是不是都为正，表现是否平滑变化？在一片嘈杂网格里孤零零的一格亮色就是过拟合，无论那一格看起来多好。
 
-For the worked example in the README, 28 of 28 parameter pairs are positive
-with a median Sharpe of 1.21. That flat plateau is the actual result, the peak
-cell is not.
+对 README 里那个实例，28 组参数对全部为正，夏普中位数 1.21。那片平坦的高地才是真正结果，峰值那一格不是。
 
-## 6. Costs, which is where most of it dies
+## 6. 成本，大多数东西死在这里
 
-Turnover is free in a research harness and expensive in production. Two numbers
-close the loop:
+换手在研究框架里是免费的，在生产里很贵。两个数字把账闭上：
 
-- **Mean daily turnover**, as a fraction of gross.
-- **Breakeven round-trip cost in bps**: the cost at which net return hits
-  zero. Compare it to the spread plus fees you actually pay. A 1.5 Sharpe with
-  a 2 bps breakeven is not a strategy, it is a measurement of the fee schedule.
+- **日均换手率**，占毛头寸的比例。
+- **盈亏平衡的往返成本（基点）**：净收益归零时的成本。拿它和你实际支付的价差加手续费比较。一个 1.5 夏普配 2 个基点的盈亏平衡，不是策略，是对费率表的一次测量。
 
-One accounting subtlety worth being precise about: on perpetuals, funding
-accrued by the book is a *component of the return*, not a fee. A long pays it,
-a short earns it, exactly like a dividend. So it belongs in both gross and net,
-leaving the gross-net gap as pure fee drag. Booking it as a cost double-counts
-a carry edge.
+有一处会计上的细节值得说清楚：在永续合约上，组合产生的资金费是*收益的一个组成部分*，不是费用。多头支付它，空头赚取它，和股息完全一样。所以它同时属于毛收益和净收益，毛净差额就纯粹是费用拖累。把它记成成本，会把一笔 carry 优势重复扣除。
 
-## 7. Combination: correlation decides
+## 7. 合成：由相关性决定
 
-A new factor earns its place by being *additive*, not by having a good
-standalone Sharpe. Correlation of return streams is what decides whether it is
-a genuinely different bet or an expensive re-parameterisation of one you
-already trade, a factor correlated 0.85 to an existing one usually replaces
-it rather than joining it.
+一个新因子靠*可加性*获得位置，而不是靠一个漂亮的单独夏普。收益流之间的相关性决定了它究竟是一笔真正不同的押注，还是你已经在交易的那个东西的一次昂贵换参——一个与现有因子相关 0.85 的因子，通常会替换它而不是加入它。
 
-Composites use gaussianised ranks so factors with different distributions are
-comparable, and equal weighting as the default. Optimised weights over a
-handful of correlated factors overfit readily; equal weighting is a
-deliberately hard baseline.
+合成使用高斯化排序，让分布不同的因子可以互相比较，并默认等权。在一小撮相关因子上做权重优化很容易过拟合；等权是一条刻意提高难度的基准线。
 
-## What is deliberately not here
+## 刻意不放进来的东西
 
-Sizing and regime work built on funding, open interest and order-book data, and
-the factor definitions themselves beyond the standard price/volume ones. The
-methodology is the transferable part; the signals are not.
+基于资金费、持仓量和订单簿数据构建的仓位规模与市场状态研究，以及价格/成交量类之外的因子定义本身。可迁移的是方法论；信号不是。
